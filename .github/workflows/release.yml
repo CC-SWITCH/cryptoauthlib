@@ -1,0 +1,172 @@
+name: Build release artifacts
+
+on:
+  release:
+    types: [published]
+
+  workflow_dispatch:
+    inputs:
+      build_ref:
+        description: "Git ref (branch or tag) to build"
+        required: false
+        default: "main"
+
+permissions:
+  contents: read
+
+jobs:
+  build-deb:
+    name: Build armhf .deb (shared library)
+    runs-on: ubuntu-latest
+    # Same base as the EIS devcontainers: pins the cross toolchain (gcc/glibc)
+    # so the .so's GLIBC requirements don't drift with the runner image.
+    container: debian:trixie
+    timeout-minutes: 30
+
+    steps:
+      - name: Resolve ref
+        id: ref
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo "value=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${{ inputs.build_ref }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install cross toolchain
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            git cmake make gcc-arm-linux-gnueabihf
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.ref.outputs.value }}
+
+      - name: Configure
+        run: cmake --preset eis-armhf
+
+      - name: Build
+        run: cmake --build --preset eis-armhf -j"$(nproc)"
+
+      - name: Package
+        run: cpack --preset eis-armhf
+
+      - name: Inspect package
+        run: |
+          deb="$(ls build/eis-armhf/cryptoauthlib_*_armhf.deb)"
+          dpkg-deb --info "$deb"
+          dpkg-deb --contents "$deb"
+
+      - name: Upload deb artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cryptoauthlib-deb
+          path: build/eis-armhf/*.deb
+          if-no-files-found: error
+
+  build-python-deb:
+    name: Build python3-cryptoauthlib .deb (arch-independent)
+    runs-on: ubuntu-latest
+    container: debian:trixie
+    timeout-minutes: 15
+
+    steps:
+      - name: Resolve ref
+        id: ref
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo "value=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${{ inputs.build_ref }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install build dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends git
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.ref.outputs.value }}
+
+      - name: Build .deb
+        run: ./packaging/build-python-deb.sh
+
+      - name: Upload python deb artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cryptoauthlib-python-deb
+          path: build/python-deb/*.deb
+          if-no-files-found: error
+
+  release-assets:
+    name: Upload release assets
+    needs: [build-deb, build-python-deb]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    permissions:
+      contents: write
+    steps:
+      - name: Download deb artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: cryptoauthlib-deb
+          path: deploy
+
+      - name: Download python deb artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: cryptoauthlib-python-deb
+          path: deploy
+
+      - name: Show release files
+        run: ls -lah deploy/
+
+      - name: Upload to GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: deploy/*
+          fail_on_unmatched_files: true
+
+  notify-slack:
+    name: Notify Slack (release)
+    needs: release-assets
+    runs-on: ubuntu-latest
+    if: success() && github.event_name == 'release' && vars.SLACK_NOTIFY_ON_RELEASE != 'false'
+    steps:
+      - name: Post release summary to Slack
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_NAME: ${{ github.event.release.name }}
+          RELEASE_URL: ${{ github.event.release.html_url }}
+          REPOSITORY: ${{ github.repository }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          if [ -z "${SLACK_WEBHOOK_URL:-}" ]; then
+            echo "SLACK_WEBHOOK_URL secret not set; skipping Slack notification."
+            exit 0
+          fi
+          python3 << 'PY'
+          import json, os, urllib.request
+          url = os.environ["SLACK_WEBHOOK_URL"]
+          tag = os.environ["RELEASE_TAG"]
+          name = os.environ.get("RELEASE_NAME") or tag
+          link = os.environ["RELEASE_URL"]
+          repo = os.environ["REPOSITORY"]
+          actor = os.environ["ACTOR"]
+          text = (
+              f"*{name}* - cryptoauthlib release published (.so + python debs)\n"
+              f"• Tag: `{tag}`\n"
+              f"• Repo: {repo}\n"
+              f"• By: {actor}\n"
+              f"• <{link}|Open release on GitHub>"
+          )
+          data = json.dumps({"text": text}).encode()
+          req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"}, method="POST")
+          urllib.request.urlopen(req, timeout=30)
+          print("Slack notification sent.")
+          PY

@@ -1,0 +1,47 @@
+{
+    "version": 6,
+    "cmakeMinimumRequired": {
+        "major": 3,
+        "minor": 25,
+        "patch": 0
+    },
+    "configurePresets": [
+        {
+            "name": "eis-armhf",
+            "displayName": "EIS target (armhf, ATECC608 over Linux /dev/i2c)",
+            "binaryDir": "${sourceDir}/build/eis-armhf",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_SYSTEM_NAME": "Linux",
+                "CMAKE_SYSTEM_PROCESSOR": "arm",
+                "CMAKE_C_COMPILER": "arm-linux-gnueabihf-gcc",
+                "ATCA_HAL_I2C": "ON",
+                "ATCA_BUILD_SHARED_LIBS": "ON",
+                "ATCA_ATECC608A_SUPPORT": "ON",
+                "ATCA_USE_ATCAB_FUNCTIONS": "ON",
+                "CPACK_DEBIAN_PACKAGE_ARCHITECTURE": "armhf",
+                "CPACK_DEBIAN_PACKAGE_MAINTAINER": "EIS",
+                "CPACK_DEBIAN_PACKAGE_SECTION": "libs",
+                "CPACK_DEBIAN_PACKAGE_DEPENDS": "libc6",
+                "CPACK_PACKAGING_INSTALL_PREFIX": "/usr",
+                "CPACK_DEBIAN_PACKAGE_SHLIBDEPS": "OFF",
+                "CPACK_DEBIAN_FILE_NAME": "DEB-DEFAULT"
+            }
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "eis-armhf",
+            "configurePreset": "eis-armhf"
+        }
+    ],
+    "packagePresets": [
+        {
+            "name": "eis-armhf",
+            "configurePreset": "eis-armhf",
+            "generators": [
+                "DEB"
+            ]
+        }
+    ]
+}
