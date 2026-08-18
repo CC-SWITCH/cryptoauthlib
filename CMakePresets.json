@@ -19,6 +19,7 @@
                 "ATCA_BUILD_SHARED_LIBS": "ON",
                 "ATCA_ATECC608A_SUPPORT": "ON",
                 "ATCA_USE_ATCAB_FUNCTIONS": "ON",
+                "ATCA_PKCS11": "ON",
                 "CPACK_DEBIAN_PACKAGE_ARCHITECTURE": "armhf",
                 "CPACK_DEBIAN_PACKAGE_MAINTAINER": "EIS",
                 "CPACK_DEBIAN_PACKAGE_SECTION": "libs",
